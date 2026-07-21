@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "base64"
+require "uri"
 
 module RubyLLM
   module MCP
@@ -134,13 +135,26 @@ module RubyLLM
         def apply_client_auth!(params, headers, client_info)
           return unless client_info.client_secret
 
-          case client_info.metadata&.token_endpoint_auth_method
+          case client_auth_method(client_info)
           when "client_secret_post"
             params[:client_secret] = client_info.client_secret
           when "client_secret_basic"
-            credentials = Base64.strict_encode64("#{client_info.client_id}:#{client_info.client_secret}")
+            client_id = URI.encode_www_form_component(client_info.client_id)
+            client_secret = URI.encode_www_form_component(client_info.client_secret)
+            credentials = Base64.strict_encode64("#{client_id}:#{client_secret}")
             headers["Authorization"] = "Basic #{credentials}"
           end
+        end
+
+        # Resolve the client authentication method, including registrations cached by older versions.
+        # Older versions stored an omitted method as "none", even when the server returned a secret.
+        # @param client_info [ClientInfo] client info with secret and auth method
+        # @return [String, nil] effective token endpoint authentication method
+        def client_auth_method(client_info)
+          auth_method = client_info.metadata&.token_endpoint_auth_method
+          return "client_secret_post" if client_info.client_secret && [nil, "none"].include?(auth_method)
+
+          auth_method
         end
 
         # Post token exchange request

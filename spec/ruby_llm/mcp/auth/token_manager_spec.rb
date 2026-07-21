@@ -129,6 +129,43 @@ RSpec.describe RubyLLM::MCP::Auth::TokenManager do
           expect(options[:form]).not_to have_key(:client_secret)
         end
       end
+
+      context "when credentials contain reserved characters" do
+        let(:client_info_basic) do
+          RubyLLM::MCP::Auth::ClientInfo.new(
+            client_id: "test:client",
+            client_secret: "s+e cret",
+            metadata: client_metadata_basic
+          )
+        end
+
+        it "form-encodes credentials before constructing the Authorization header" do
+          manager.exchange_authorization_code(server_metadata, client_info_basic, code, pkce, server_url)
+
+          expect(http_client).to have_received(:post) do |_url, options|
+            expected = Base64.strict_encode64("test%3Aclient:s%2Be+cret")
+            expect(options[:headers]["Authorization"]).to eq("Basic #{expected}")
+          end
+        end
+      end
+    end
+
+    context "with a client secret cached by an older version" do
+      let(:legacy_client_info) do
+        RubyLLM::MCP::Auth::ClientInfo.new(
+          client_id: "test_client_id",
+          client_secret: "test_secret",
+          metadata: client_metadata
+        )
+      end
+
+      it "infers client_secret_post when the cached method is none" do
+        manager.exchange_authorization_code(server_metadata, legacy_client_info, code, pkce, server_url)
+
+        expect(http_client).to have_received(:post) do |_url, options|
+          expect(options[:form][:client_secret]).to eq("test_secret")
+        end
+      end
     end
 
     context "with redirect URI mismatch" do
